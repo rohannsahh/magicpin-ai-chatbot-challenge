@@ -307,12 +307,14 @@ COMPULSION LEVER → Threat awareness + Category-specific differentiation + Imme
 
 - Sender: Vera (vera)
 - Salutation: "Dr. [owner]" for dentists; "[owner]" for others
-- Sentence 1 (threat): "{competitor_name} just opened {distance_km}km away" + their offer if in FACTS
-- Sentence 2 (your moat — BOTH numbers in ONE sentence):
-  "You've served {total_patients_ytd} patients since {established_year}" — use EXACT numbers from FACTS
-  If established_year is in FACTS: MUST include it. If total_patients_ytd is in FACTS: MUST include it.
-- Sentence 3 (social proof): Quote the exact merchant_strengths review from FACTS verbatim in quotes
-  Example: "Patients say '\"Dr. Meera explains everything patiently\"' — that's what keeps them coming back"
+- Sentence 1 (threat): Use competitor_name from FACTS + distance_km from FACTS, e.g. "[competitor_name] just opened [distance_km]km away"
+  If competitor_offer is in FACTS: add "offering [competitor_offer]"
+- Sentence 2 (your moat — BOTH numbers in ONE sentence, MANDATORY):
+  Write: "You've served [use the total_patients_ytd value from FACTS] patients since [use the established_year value from FACTS]"
+  Example with real values: "You've served 540 patients since 2018" — substitute actual FACTS values, never use placeholders
+  BOTH total_patients_ytd and established_year are in FACTS — use them.
+- Sentence 3 (social proof): Quote the exact text from merchant_strengths in FACTS verbatim inside quotes
+  Example: "Patients say 'Dr. Meera explains everything patiently' — that's what keeps them coming back"
 - Sentence 4 (MANDATORY defensive action — use defensive_action from FACTS verbatim):
   defensive_action is in FACTS — include it as the counter-move. Do NOT substitute a generic action.
 - CATEGORY VOCABULARY (MANDATORY — use AT LEAST 1 word from category_vocab_hint in FACTS)
@@ -740,6 +742,16 @@ def build_user_prompt(facts: Dict[str, Any], trigger_kind: str, category: dict) 
     code_mix = voice.get("code_mix", "english")
     slug = category.get("slug", "")
 
+    # Judge evaluates Category Fit on voice style — map exactly to judge criteria
+    _VOICE_STYLE = {
+        "gyms":        "COACHING / MOTIVATIONAL — talk like an energetic fitness coach, NOT an analytics report. Use energy words.",
+        "salons":      "WARM / FRIENDLY / PRACTICAL — talk like a smart stylist friend texting, NOT a corporate memo.",
+        "restaurants": "OPERATOR-TO-OPERATOR — talk like a savvy F&B business partner who knows their numbers, NOT a consultant.",
+        "pharmacies":  "TRUSTWORTHY / PRECISE — talk like a knowledgeable pharmacist peer sharing clinical intel, NOT a compliance officer.",
+        "dentists":    "CLINICAL / PEER-TO-PEER — talk like a fellow dentist sharing urgent clinical insight, NOT an administrative notice.",
+    }
+    voice_style = _VOICE_STYLE.get(slug, "PROFESSIONAL / DIRECT — talk like a smart business advisor, NOT a corporate email.")
+
     kind_instruction = _KIND_INSTRUCTIONS.get(trigger_kind, _GENERIC_INSTRUCTION)
     # Resolve category-conditional placeholders so the LLM sees ONE clear instruction
     kind_instruction = _resolve_category(kind_instruction, slug, facts)
@@ -773,6 +785,7 @@ Register   : {register}
 Code-mix   : {code_mix}
 Use vocab  : {vocab_sample}
 BANNED (never use, not even partially): {taboos}
+VOICE STYLE: {voice_style}
 
 ══ VERIFIED FACTS — only use what's listed here ══
 {_fmt_facts(facts)}
@@ -788,7 +801,8 @@ BANNED (never use, not even partially): {taboos}
 □ Only active offers mentioned
 □ Exactly one CTA — crisp, one-tap ("Reply YES", "Reply 1 for X, 2 for Y")
 □ Language matches Code-mix (Hinglish if hindi_english_natural; English if english-only)
-□ At least 1 category vocab term from "Use vocab" list appears in the message body
+□ At least 1 word from "Use vocab" list AND at least 1 word from category_vocab_hint (if in FACTS) appear in body
+□ VOICE CHECK: message sounds like the VOICE STYLE above — NOT analytical/corporate/template-like
 □ Message reads like a smart Indian friend's WhatsApp, not a corporate memo
 
 Return JSON only — no preamble, no explanation."""

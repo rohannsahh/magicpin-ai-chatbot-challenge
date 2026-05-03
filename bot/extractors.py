@@ -187,10 +187,19 @@ def extract_recall_due(cat: dict, m: dict, t: dict, c: Optional[dict]) -> dict:
     }
 
 
+_PERFDIP_CATEGORY_VOCAB = {
+    "gyms":        "footfall / membership / class bookings / members",
+    "salons":      "bridal / keratin / styling / walk-ins",
+    "restaurants": "covers / orders / dine-in / delivery",
+    "pharmacies":  "prescription / walk-ins / dispensing / OTC",
+    "dentists":    "patient / appointments / recall / bookings",
+}
+
 def extract_perf_dip(cat: dict, m: dict, t: dict, c: Optional[dict]) -> dict:
     base = _merchant_base(m)
     payload = t.get("payload", {})
     perf = m.get("performance", {})
+    slug = cat.get("slug", "")
 
     metric = payload.get("metric", "calls")
     delta_pct = payload.get("delta_pct", 0)
@@ -232,6 +241,7 @@ def extract_perf_dip(cat: dict, m: dict, t: dict, c: Optional[dict]) -> dict:
         "peer_median": peer_val,
         "peer_ctr": _peer_stat(cat, "avg_ctr"),
         "neg_review_themes": neg_review_themes[:2],
+        "category_vocab_hint": _PERFDIP_CATEGORY_VOCAB.get(slug, "customers / visits / revenue"),
     }
 
 
@@ -268,11 +278,20 @@ def extract_perf_spike(cat: dict, m: dict, t: dict, c: Optional[dict]) -> dict:
     }
 
 
+_RENEWAL_CATEGORY_VOCAB = {
+    "gyms":        "membership / class / members / footfall",
+    "salons":      "bridal / keratin / styling / bookings",
+    "restaurants": "covers / orders / dine-in / delivery",
+    "pharmacies":  "prescription / refill / dispensing / OTC",
+    "dentists":    "patient / recall / scaling / appointment",
+}
+
 def extract_renewal_due(cat: dict, m: dict, t: dict, c: Optional[dict]) -> dict:
     base = _merchant_base(m)
     payload = t.get("payload", {})
     sub = m.get("subscription", {})
     perf = m.get("performance", {})
+    slug = cat.get("slug", "")
 
     days = payload.get("days_remaining") or sub.get("days_remaining")
     plan = payload.get("plan") or sub.get("plan", "Pro")
@@ -295,6 +314,7 @@ def extract_renewal_due(cat: dict, m: dict, t: dict, c: Optional[dict]) -> dict:
         "ctr": merchant_ctr,
         "peer_ctr": peer_ctr,
         "ctr_gap": ctr_gap,
+        "category_vocab_hint": _RENEWAL_CATEGORY_VOCAB.get(slug, "customers / visits / service"),
     }
 
 

@@ -168,7 +168,7 @@ def _deepseek_complete(system: str, user: str) -> str:
         temperature=0,
         response_format={"type": "json_object"},
         timeout=TIMEOUT,
-        max_tokens=1500,
+        max_tokens=5000,
         extra_body={"thinking": {"type": "disabled"}},
     )
     return response.choices[0].message.content
