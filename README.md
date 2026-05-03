@@ -1,138 +1,137 @@
-# Vera Pro — magicpin AI Challenge Submission
+# Vera Pro - magicpin AI Challenge
 
-## What this bot does
+Vera Pro is a trigger-driven WhatsApp assistant for Indian SMBs. The judge pushes merchant, customer, category, and trigger contexts, and the bot returns high-quality outreach actions scored on specificity, category fit, merchant fit, decision quality, and engagement.
 
-Vera Pro is a WhatsApp AI assistant for Indian merchants. The judge pushes merchant data + "trigger events" (e.g. "renewal due in 12 days", "calls dropped 50%") to the bot, which must reply with the best possible WhatsApp message for that situation. An LLM judge scores each message 0–50 across: specificity, category fit, merchant fit, decision quality, engagement.
-
-**Current best result: ~39.6 / 50 average** (11 messages scored)
-
----
-
-## Core design principle
-
-> Message quality is won at the **data-selection layer**, not the generation layer.
-
-Instead of dumping all merchant data at the LLM, we extract only what matters per trigger type first:
+## Quick architecture (at a glance)
 
 ```
-trigger_kind → extractor(category, merchant, trigger, customer) → facts_dict
-facts_dict   → build_user_prompt(facts, kind)                   → prompt
-prompt       → LLM (JSON mode, temp=0)                          → {body, cta, send_as, rationale}
+Judge -> /v1/context -> ContextStore
+                     -> background pre-compose (ThreadPool)
+
+Judge -> /v1/tick -> TickPlanner -> CompositionCache hit? -> return action
+                                  -> miss -> extract facts -> prompt builder -> LLM -> validate -> cache -> action
+
+Inbound reply -> /v1/reply -> ReplyHandler -> next action/end
 ```
 
-The LLM does **language assembly only** — all decisions (which numbers to use, which offer to show, which slot to name) are made deterministically before the LLM is called.
+## Approach in one line
 
----
+Deterministic fact selection first, LLM wording second.
 
-## Architecture
+```
+trigger -> extractor(kind) -> verified facts -> kind-specific prompt -> LLM(JSON) -> validated action
+```
+
+This keeps outputs grounded and reduces hallucination.
+
+## System architecture
 
 ```
 bot/
-  main.py           FastAPI server — 5 endpoints + compose orchestration
-  extractors.py     20 per-kind deterministic fact extractors
-  prompts.py        SYSTEM_PROMPT + per-kind psychological levers + prompt builder
-  composer.py       Orchestrates: extract → prompt → LLM → validate
-  tick_planner.py   Urgency-ranks triggers, caches composed results
-  reply_handler.py  Detects auto-replies / negative intent / action intent
-  store.py          In-memory context, suppression, conversation, compose cache
-  llm.py            Multi-provider LLM client (OpenAI / Groq / DeepSeek / Anthropic / Gemini)
+  main.py           FastAPI app + orchestration
+  extractors.py     per-trigger deterministic fact extraction
+  prompts.py        system + kind instructions + category resolution
+  composer.py       extract -> prompt -> llm -> output shaping
+  tick_planner.py   candidate ranking, suppression handling, action finalization
+  reply_handler.py  inbound conversation handling
+  store.py          in-memory context + suppression + conversation + compose cache
+  llm.py            provider abstraction (DeepSeek/OpenAI/Groq/Anthropic/Gemini)
 ```
 
-### Endpoints
+### Runtime flow
 
-| Method | Path | Purpose |
+1. `/v1/context` upserts contexts and pre-composes trigger messages in background.
+2. `/v1/tick` ranks up to 5 triggers.
+3. Cache hits are returned immediately.
+4. Cache misses compose in parallel via a thread pool (`max_workers=8`) within the tick deadline.
+5. Results are validated and returned as actions.
+
+## API endpoints
+
+- `POST /v1/context` - upsert category, merchant, customer, trigger contexts
+- `POST /v1/tick` - return best actions for current tick
+- `POST /v1/reply` - handle merchant replies
+- `GET /v1/healthz` - liveness + loaded context counts
+- `GET /v1/metadata` - team metadata
+
+## Model strategy and evolution
+
+We implemented a multi-provider LLM layer and tested across providers.
+
+- Earlier iteration used Groq heavily for speed/cost.
+- Current primary path uses DeepSeek (`deepseek-v4-flash`) because it gave better stability under judge workload.
+- OpenAI, Anthropic, and Gemini remain supported fallbacks.
+
+### Provider matrix
+
+| Provider | `LLM_PROVIDER` | Typical model |
 |---|---|---|
-| POST | `/v1/context` | Upsert category / merchant / customer / trigger data |
-| POST | `/v1/tick` | Return up to 5 outreach actions for this tick |
-| POST | `/v1/reply` | Handle inbound merchant reply, return next action |
-| GET  | `/v1/healthz` | Liveness probe |
-| GET  | `/v1/metadata` | Team identity |
+| DeepSeek | `deepseek` | `deepseek-v4-flash` |
+| OpenAI | `openai` | `gpt-4o-mini` |
+| Groq | `groq` | `llama-3.1-8b-instant` |
+| Anthropic | `anthropic` | `claude-3-haiku-20240307` |
+| Gemini | `gemini` | `gemini-2.0-flash` |
 
-### Compose flow (the critical path)
+DeepSeek calls are configured with low temperature and thinking disabled for latency consistency.
 
-```
-/v1/context (trigger) → background pre-compose (semaphore=1)
-                                    ↓
-/v1/tick → rank candidates → fast cache lookup → if miss: sequential compose
-                                                   (deadline = 13s, one at a time)
-```
+## Key design tradeoffs
 
-**Why sequential, not parallel**: Groq/DeepSeek have RPM limits. Spawning 5 parallel LLM calls causes a burst of 429s → 4–30s retry delays → exceed the 13s tick deadline → 0 actions returned. Sequential compose (one at a time) fits 5 × ~2s = 10s comfortably within the deadline.
+1. Parallel compose vs. rate limits
+- Parallel compose improves tick latency but increases burst risk on low-RPM providers.
+- We mitigate using short timeouts, caching, and deterministic extraction to keep retries low.
 
----
+2. Deterministic facts vs. generation flexibility
+- Strict extraction improves judge specificity/decision quality.
+- It can reduce stylistic variety and sometimes hurts engagement if prompt constraints are too rigid.
 
-## Score dimensions & how we target each
+3. Prompt strictness vs. robustness
+- Hard constraints improve category fit in many triggers.
+- Over-constrained prompts can occasionally collapse into flat scoring patterns under judge variance.
 
-| Judge dimension | Technique |
-|---|---|
-| **Specificity** (8–9/10) | Extractors inject every relevant number verbatim; system prompt rule: "include every number from FACTS" |
-| **Category fit** (9/10) | Per-category voice profiles + banned words enforced; category-specific offer patterns |
-| **Merchant fit** (8–9/10) | Owner name, merchant display name, city, exact metrics from that merchant's data |
-| **Decision quality** (7–8/10) | Extractors prevent hallucinated numbers; only active offers shown; per-kind CTA rules |
-| **Engagement** (6–7/10) | Psychological levers: loss aversion for perf_dip/renewal, curiosity for research_digest, countdown for festival/wedding |
-
----
-
-## Trigger kinds handled (20)
-
-`research_digest` · `recall_due` · `perf_dip` · `perf_spike` · `renewal_due` · `winback_eligible` · `festival_upcoming` · `review_theme_emerged` · `curious_ask_due` · `wedding_package_followup` · `customer_lapsed_soft` · `customer_lapsed_hard` · `dormant_with_vera` · `ipl_match_today` · `competitor_opened` · `milestone_reached` · `regulation_change` · `appointment_tomorrow` · `trial_followup` · `chronic_refill_due`
-
----
-
-## Key bugs fixed during development
-
-| Bug | Impact | Fix |
-|---|---|---|
-| `{variable}` literal output | 8B LLM printed `{days_remaining}` literally in messages | Rewrote all 13 prompt instructions to use plain English examples |
-| Parallel compose → 429 burst | 5 simultaneous LLM calls → rate limit → 0 actions returned | Changed to sequential compose in `/v1/tick` |
-| Extractor crashes (4 kinds) | `dormant_with_vera`, `customer_lapsed`, `trial_followup`, `chronic_refill` returned empty facts | Fixed field access bugs in extractors.py |
-| Background compose duplication | Same trigger composed twice simultaneously | `_composing_set` prevents duplicate concurrent LLM calls |
-
----
-
-## Running the bot
+## Setup and local run
 
 ```bash
-# 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Configure provider (choose one)
-# .env for DeepSeek V4 (recommended — high rate limits, low cost):
+# .env
 LLM_PROVIDER=deepseek
-LLM_API_KEY=<your DeepSeek API key from platform.deepseek.com>
-LLM_MODEL=deepseek-v4-flash      # or deepseek-v4-pro for best quality
+LLM_API_KEY=<your_key>
+LLM_MODEL=deepseek-v4-flash
 BOT_PORT=8080
 
-# .env for Groq (free tier — 30 RPM limit causes 429s on batch 4+):
-LLM_PROVIDER=groq
-LLM_API_KEY=<your Groq key>
-LLM_MODEL=llama-3.1-8b-instant
-
-# 3. Start the server
 python -m uvicorn bot.main:app --host 0.0.0.0 --port 8080
-
-# 4. Run the judge simulator (separate terminal)
 python judge_simulator.py
 ```
 
-## Supported LLM providers
+## Deployment
 
-| Provider | `.env` value | Recommended model | Notes |
-|---|---|---|---|
-| **DeepSeek V4** | `deepseek` | `deepseek-v4-flash` / `deepseek-v4-pro` | Best quality + high RPM limits |
-| OpenAI | `openai` | `gpt-4o-mini` | Good quality, cost moderate |
-| Groq | `groq` | `llama-3.1-8b-instant` | Free but 30 RPM cap causes 429s |
-| Anthropic | `anthropic` | `claude-3-haiku-20240307` | Good quality |
-| Gemini | `gemini` | `gemini-2.0-flash` | Good quality |
+Railway-ready files are included:
+
+- `Procfile`
+- `railway.json`
+
+Recommended Railway start command:
+
+```bash
+python -m uvicorn bot.main:app --host 0.0.0.0 --port $PORT
+```
+
+Set these variables in Railway:
+
+- `LLM_PROVIDER`
+- `LLM_API_KEY`
+- `LLM_MODEL`
+- `BOT_PORT` (optional if using `$PORT`)
+
+## Submission artifact
+
+Generate response pairs with:
+
+```bash
+python scripts/build_submission.py
+```
+
+This writes `submission.jsonl`.
 
 ---
-
-## What would push scores above 42/50
-
-- Stronger engagement copy in `research_digest`, `festival_upcoming`, `review_theme_emerged` (currently 38/50)
-- Richer `review_theme_emerged` hooks (real GBP photo metadata)
-- Smarter `recall_due` timing (visit-history time-series per customer)
-- Concrete slot labels for `recall_due` / `wedding_package_followup` from real availability data
-
----
-*Team: Vera Pro · Supports: DeepSeek V4 / GPT-4o / Groq / Claude · Temperature: 0*
+Team: Vera Pro
