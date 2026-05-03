@@ -56,7 +56,7 @@ bot/
 
 ## Model strategy and evolution
 
-We implemented a multi-provider LLM layer and tested across providers.
+I implemented a multi-provider LLM layer and tested across providers.
 
 - Earlier iteration used Groq heavily for speed/cost.
 - Current primary path uses DeepSeek (`deepseek-v4-flash`) because it gave better stability under judge workload.
