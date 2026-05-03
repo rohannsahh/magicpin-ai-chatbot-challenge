@@ -292,10 +292,17 @@ async def healthz():
 
 @app.get("/v1/metadata")
 async def metadata():
+    from bot.llm import LLM_PROVIDER, LLM_MODEL
+    _model_display = LLM_MODEL or {
+        "deepseek": "deepseek-v4-flash",
+        "groq": "llama-3.3-70b-versatile",
+        "anthropic": "claude-3-haiku-20240307",
+        "gemini": "gemini-2.0-flash",
+    }.get(LLM_PROVIDER, "gpt-4o-mini")
     return {
         "team_name": "Vera Pro",
         "team_members": ["Rohan"],
-        "model": "gpt-4o-mini",
+        "model": _model_display,
         "approach": (
             "Deterministic per-trigger-kind fact extraction → "
             "tight per-kind LLM prompt with verified data only → "
