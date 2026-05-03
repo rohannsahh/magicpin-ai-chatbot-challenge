@@ -213,7 +213,6 @@ def extract_perf_dip(cat: dict, m: dict, t: dict, c: Optional[dict]) -> dict:
         "directions": "avg_directions_30d",
     }
     peer_val = _peer_stat(cat, peer_key_map.get(metric, "avg_calls_30d"))
-    current_val = perf.get(metric) or vs_baseline
 
     neg_review_themes = [
         rt.get("common_quote", rt.get("theme", ""))
@@ -221,11 +220,22 @@ def extract_perf_dip(cat: dict, m: dict, t: dict, c: Optional[dict]) -> dict:
         if rt.get("sentiment") == "neg"
     ]
 
-    # Compute absolute delta for stakes framing
-    delta_abs = None
-    if vs_baseline is not None and current_val is not None:
+    # Compute actual current value = baseline * (1 + delta_pct)
+    # vs_baseline = the merchant's own recent average (not peer)
+    actual_current = None
+    if vs_baseline is not None and delta_pct != 0:
         try:
-            delta_abs = int(abs(float(vs_baseline) - float(current_val)))
+            actual_current = round(float(vs_baseline) * (1 + float(delta_pct)))
+        except Exception:
+            pass
+    # Use perf data if available, otherwise derive from baseline+delta
+    current_val = perf.get(metric) or actual_current or vs_baseline
+
+    # Compute absolute drop from baseline
+    delta_abs = None
+    if vs_baseline is not None and delta_pct != 0:
+        try:
+            delta_abs = round(abs(float(vs_baseline) * float(delta_pct)))
         except Exception:
             pass
 

@@ -125,11 +125,12 @@ COMPULSION LEVER → Loss aversion + Actionable fix
 
 - Sender: Vera (vera)
 - Hook: Use metric, delta_pct_str, and window from FACTS in sentence 1 (e.g. "Your calls dropped 50% in the last 7d")
-- Stakes: make it personal — if delta_abs is in FACTS use it ("that's 8 fewer customers this week"); if NOT present, do NOT invent an absolute count
-- DO NOT state the absolute current call/view count unless current_value is explicitly in FACTS and different from vs_baseline
+- Stakes: If delta_abs is in FACTS (non-zero), use it verbatim: "that's {delta_abs} fewer {metric} this week"
+  If current_value is in FACTS and different from vs_baseline, also mention it: "only {current_value} this week vs {vs_baseline} normally"
+  NEVER compute or invent a different number — only use delta_abs and current_value EXACTLY as they appear in FACTS
 - Anchor: Use peer_median from FACTS (e.g. "peer median is 12 calls")
 - Explain a likely cause using neg_review_themes from FACTS if available
-- Propose ONE concrete fix using their active_offers or signals
+- Propose ONE concrete fix using their active_offers or signals (use category vocab)
 - Make the fix feel easy: "One post could turn this around — Reply YES and I'll draft it now"
 - CTA: binary YES/NO to the proposed fix
 - send_as: vera""",
