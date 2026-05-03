@@ -323,15 +323,15 @@ def extract_renewal_due(cat: dict, m: dict, t: dict, c: Optional[dict]) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _WINBACK_CATEGORY_CONTEXT = {
-    "salons":      ("bridal bookings, keratin treatments, and styling appointments",
+    "salons":      ("potential clients chose competitors for bridal and styling bookings",
                    "bridal / keratin / hair spa / styling"),
-    "restaurants": ("dine-in covers, delivery orders, and combo bookings",
+    "restaurants": ("potential diners placed orders with listed competitors",
                     "covers / orders / combo / dine-in"),
-    "gyms":        ("new membership joins, class bookings, and PT sessions",
+    "gyms":        ("potential members signed up with listed competitors",
                     "membership / HIIT / PT sessions / footfall"),
-    "pharmacies":  ("prescription refills, OTC walk-ins, and chronic dispensing",
+    "pharmacies":  ("potential customers filled prescriptions at listed pharmacies",
                     "prescription / refill / dispensing / OTC"),
-    "dentists":    ("patient appointments, recall visits, and clinical consultations",
+    "dentists":    ("potential patients booked with other listed dental clinics",
                     "patient / appointment / clinical / recall"),
 }
 
@@ -339,11 +339,11 @@ def extract_winback(cat: dict, m: dict, t: dict, c: Optional[dict]) -> dict:
     base = _merchant_base(m)
     payload = t.get("payload", {})
     slug = cat.get("slug", "")
-    ctx = _WINBACK_CATEGORY_CONTEXT.get(slug, ("customer visits", ""))
+    ctx = _WINBACK_CATEGORY_CONTEXT.get(slug, ("customer visits were lost to competitors", ""))
     lapsed = payload.get("lapsed_customers_added_since_expiry")
     loss_framing = (
-        f"{lapsed} {ctx[0]} were lost to competitors" if lapsed
-        else f"{ctx[0]} are going to listed competitors"
+        f"{lapsed} {ctx[0]}" if lapsed
+        else f"{ctx[0]}"
     )
 
     return {

@@ -125,9 +125,10 @@ COMPULSION LEVER → Loss aversion + Actionable fix
 
 - Sender: Vera (vera)
 - Hook: Use metric, delta_pct_str, and window from FACTS in sentence 1 (e.g. "Your calls dropped 50% in the last 7d")
-- Stakes: make it personal — use delta_abs from FACTS (e.g. "that's 12 fewer customers this week")
-- Anchor: Use peer_median from FACTS (e.g. "peer median is 42")
-- Explain a likely cause (negative review theme if available)
+- Stakes: make it personal — if delta_abs is in FACTS use it ("that's 8 fewer customers this week"); if NOT present, do NOT invent an absolute count
+- DO NOT state the absolute current call/view count unless current_value is explicitly in FACTS and different from vs_baseline
+- Anchor: Use peer_median from FACTS (e.g. "peer median is 12 calls")
+- Explain a likely cause using neg_review_themes from FACTS if available
 - Propose ONE concrete fix using their active_offers or signals
 - Make the fix feel easy: "One post could turn this around — Reply YES and I'll draft it now"
 - CTA: binary YES/NO to the proposed fix
@@ -329,7 +330,7 @@ COMPULSION LEVER → Social proof momentum + Compound action
   Do NOT say milestone was reached if is_imminent is true — it hasn't been yet
   Add urgency: "Get [N] more this week — here's how"
 - If is_imminent is FALSE: celebrate with EXACT milestone_value — "You've hit {milestone_value} reviews!"
-- Compare to peer_avg_reviews from FACTS: "peer average is [N] — you're ahead"
+- If peer_avg_reviews is in FACTS: Compare to it — "peer average is [N] — you're ahead". If NOT in FACTS, do NOT mention any peer average
 - Suggested action (MANDATORY — use category_action_hint from FACTS verbatim in the message body)
 - CATEGORY VOCABULARY (MANDATORY — use AT LEAST 1 word from category_vocab_hint in FACTS)
 - CTA: binary YES to execute the action now
@@ -367,10 +368,11 @@ COMPULSION LEVER → Momentum from first session + Easy next step
 - Language: match customer_language from FACTS (Hinglish if "hi-en mix" or "hindi"; English if "english")
 - Tone: match category voice (gym → energetic, coach-style: "great session", "felt the difference", "keep the momentum";
   salon → warm-practical; dentist → clinical-warm)
-- Reference their EXACT trial_date and what they tried (services_received) from FACTS
+- Reference their EXACT trial_date from FACTS
 - Use 1 term from vocab_allowed that fits: gym → "yoga", "HIIT", "PT session", "class", "pilates"; salon → "keratin", "facial", "treatment"
-- Name the EXACT next_session_label slot — make it effortless to say YES
-- If active_offer: include it as the reason to commit now
+- Name the EXACT next_session_label slot from FACTS — make it effortless to say YES
+- If active_offer is in FACTS and non-empty: include it as the reason to commit now
+- If active_offer is EMPTY: do NOT mention any price or offer amount — focus purely on the next slot and momentum
 - CTA: binary YES to book next_session_label
 - send_as: merchant_on_behalf""",
 
@@ -743,23 +745,35 @@ def build_user_prompt(facts: Dict[str, Any], trigger_kind: str, category: dict) 
     slug = category.get("slug", "")
 
     # Judge evaluates Category Fit on voice style — map exactly to judge criteria
-    _VOICE_STYLE = {
+    # For MERCHANT-FACING (vera) messages:
+    _VERA_VOICE_STYLE = {
         "gyms":        "COACHING / MOTIVATIONAL — talk like an energetic fitness coach, NOT an analytics report. Use energy words.",
         "salons":      "WARM / FRIENDLY / PRACTICAL — talk like a smart stylist friend texting, NOT a corporate memo.",
         "restaurants": "OPERATOR-TO-OPERATOR — talk like a savvy F&B business partner who knows their numbers, NOT a consultant.",
         "pharmacies":  "TRUSTWORTHY / PRECISE — talk like a knowledgeable pharmacist peer sharing clinical intel, NOT a compliance officer.",
         "dentists":    "CLINICAL / PEER-TO-PEER — talk like a fellow dentist sharing urgent clinical insight, NOT an administrative notice.",
     }
-    voice_style = _VOICE_STYLE.get(slug, "PROFESSIONAL / DIRECT — talk like a smart business advisor, NOT a corporate email.")
+    # For CUSTOMER-FACING (merchant_on_behalf) messages: warm, accessible, conversational
+    _CUSTOMER_VOICE_STYLE = {
+        "gyms":        "WARM / ENCOURAGING — talk like an excited coach, friendly and motivating. Short, energetic sentences.",
+        "salons":      "WARM / PERSONAL — talk like a friendly stylist who knows the customer. Casual and inviting.",
+        "restaurants": "FRIENDLY / CASUAL — talk like the restaurant owner personally reaching out. Warm and direct.",
+        "pharmacies":  "CARING / CLEAR — talk like a trusted pharmacist who remembers their patient. Gentle urgency.",
+        "dentists":    "WARM / CARING — talk like a caring dental care coordinator, NOT clinical jargon. Patient-friendly language.",
+    }
+    # Determine voice style based on whether this is customer-facing
+    customer_name = facts.get("customer_name", "")
+    is_customer_facing = bool(customer_name)
+    if is_customer_facing:
+        voice_style = _CUSTOMER_VOICE_STYLE.get(slug, "WARM / FRIENDLY — talk like a helpful local business, NOT a corporate system.")
+    else:
+        voice_style = _VERA_VOICE_STYLE.get(slug, "PROFESSIONAL / DIRECT — talk like a smart business advisor, NOT a corporate email.")
 
     kind_instruction = _KIND_INSTRUCTIONS.get(trigger_kind, _GENERIC_INSTRUCTION)
     # Resolve category-conditional placeholders so the LLM sees ONE clear instruction
     kind_instruction = _resolve_category(kind_instruction, slug, facts)
 
     # Determine who the message is addressed TO (customer vs merchant owner)
-    customer_name = facts.get("customer_name", "")
-    is_customer_facing = bool(customer_name)
-
     # Only inject RECIPIENT block for customer-facing messages (merchant_on_behalf)
     # For vera/merchant messages, it adds noise and can confuse the LLM
     if is_customer_facing:
